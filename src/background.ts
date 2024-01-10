@@ -6,10 +6,14 @@ import installExtension from 'electron-devtools-installer'
 import ElectronStore from "electron-store";
 import HttpFetcher from "@/http/HttpFetcher";
 import {IssueConstants} from "@/constants/IssueConstants";
-import {extractArguments} from "@/fix/fixingHelper";
+import {extractArguments, extractIngestReferences, removeContentPrefix} from "@/fix/fixingHelper";
+import PatchRequest from "@/http/PatchRequest";
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 const store = new ElectronStore();
+
+const STUDIO_URL:string="https://studio.uat.dior.coremedia.cloud/";
+const INGEST_URL:string="https://ingest.uat.dior.coremedia.cloud";
 
 const path = require('path')
 const Module = require('module')
@@ -19,6 +23,7 @@ protocol.registerSchemesAsPrivileged([
 ])
 const PATH_APP_NODE_MODULES = path.join(__dirname, '..', '..', 'app', 'node_modules')
 Module.globalPaths.push(PATH_APP_NODE_MODULES)
+
 let win: BrowserWindow;
 const httpFetcher = new HttpFetcher();
 
@@ -46,7 +51,7 @@ async function createWindow() {
 
     if (process.env.WEBPACK_DEV_SERVER_URL) {
         // Load the url of the dev server if in development mode
-        await win.loadURL("https://studio.production.dior.coremedia.cloud/")
+        await win.loadURL("https://studio.uat.dior.coremedia.cloud/")
         if (!process.env.IS_TEST) win.webContents.openDevTools()
     } else {
         createProtocol('app')
@@ -64,31 +69,60 @@ async function handleCookieChange(event, cookie) {
         /**
          * Handle the fix of issues, in our case the dead links. Not really great right now, TODO://needs refactoring
          */
-        win.webContents.executeJavaScript("console.log('fancy')")
         ipcMain.on(IssueConstants.FIX_DEAD_LINKS, async (event, data) => {
             console.log("Start fixing dead links " + JSON.stringify(data));
             for (const item of data) {
-                console.log(Object.keys(item) + " " + item.contentId)
-                const id = item.contentId.remove("content/");
+                console.log(Object.keys(item) + " " + item.contentId + typeof item.contentId)
+                const id = removeContentPrefix(item.contentId);
                 const contentToRemove: Array<string> = extractArguments("dead_link", item);
                 //get the ingest response, and fix the field.
-                const ingest = await httpFetcher.getContent("http://ingest.production.dior.coremedia.cloud", id, "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL3d3dy5jb3JlbWVkaWEuY29tIiwic3ViIjoiamhsaW5rZUBjb2duaXRvIiwiaWF0IjoxNzAwMDQzMDY3LCJwZXJtaXNzaW9ucyI6WyJzZWNvbmQ6Y29udGVudF9yZWFkIiwidGhpcmQ6Y29udGVudF93cml0ZSIsInVhdDpjb250ZW50X3dyaXRlIiwidWF0Mjpjb250ZW50X3dyaXRlIiwidWF0Mjpjb250ZW50X3JlYWQiLCJ1YXQ6Y29udGVudF9yZWFkIiwidGhpcmQ6Y29udGVudF9yZWFkIiwic2Vjb25kOmNvbnRlbnRfd3JpdGUiLCJwcm9kdWN0aW9uOmNvbnRlbnRfd3JpdGUiLCJkZXZlbG9wbWVudDpjb250ZW50X3dyaXRlIiwiZGV2ZWxvcG1lbnQ6Y29udGVudF9yZWFkIiwicHJvZHVjdGlvbjpjb250ZW50X3JlYWQiXSwianRpIjoiODJlMzM2NjQtMzY4Ni00ODE4LWI3ZjYtNmJlMTQxNTA2YzllIn0.VORVOeiazSi8h-4ws-I9WZgbeKf5NYgxPInggH9tVy090xZgXynCNr-2CvWnBkWhilhT1G_2nbljDkhd_8fsxL5nZ6P4LuFRdJPtA2HrkWslZNu1gsU45ClRlOBIcF9hjeSHKMgR8sKzwhrBxEGvbmiUkm858fnq0dMpS6Z6_06Yb2NEHI88xQpEYy7QrxU14yaiF0y0fn1I-KiWhXHDKtQol5zauKsryZONk78XykXv2GK7i5Mnt1DlXkIqb3rowjLTdQzAUbzz_8mGMGOup3C8JsMv7T0qcJnCbKWieBY9h-scQ79dBjOe6uKpqR7J8D1G7qw8DHjiu5mHaUbxrA");
-                //parse the arguments.
-                ingest.data.properties[item.property].references;
+                try {
+                    const ingest = await httpFetcher.getContent("https://ingest.uat.dior.coremedia.cloud", id, "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL3d3dy5jb3JlbWVkaWEuY29tIiwic3ViIjoiamhsaW5rZUBjb2duaXRvIiwiaWF0IjoxNzAwMDQzMDY3LCJwZXJtaXNzaW9ucyI6WyJzZWNvbmQ6Y29udGVudF9yZWFkIiwidGhpcmQ6Y29udGVudF93cml0ZSIsInVhdDpjb250ZW50X3dyaXRlIiwidWF0Mjpjb250ZW50X3dyaXRlIiwidWF0Mjpjb250ZW50X3JlYWQiLCJ1YXQ6Y29udGVudF9yZWFkIiwidGhpcmQ6Y29udGVudF9yZWFkIiwic2Vjb25kOmNvbnRlbnRfd3JpdGUiLCJwcm9kdWN0aW9uOmNvbnRlbnRfd3JpdGUiLCJkZXZlbG9wbWVudDpjb250ZW50X3dyaXRlIiwiZGV2ZWxvcG1lbnQ6Y29udGVudF9yZWFkIiwicHJvZHVjdGlvbjpjb250ZW50X3JlYWQiXSwianRpIjoiODJlMzM2NjQtMzY4Ni00ODE4LWI3ZjYtNmJlMTQxNTA2YzllIn0.VORVOeiazSi8h-4ws-I9WZgbeKf5NYgxPInggH9tVy090xZgXynCNr-2CvWnBkWhilhT1G_2nbljDkhd_8fsxL5nZ6P4LuFRdJPtA2HrkWslZNu1gsU45ClRlOBIcF9hjeSHKMgR8sKzwhrBxEGvbmiUkm858fnq0dMpS6Z6_06Yb2NEHI88xQpEYy7QrxU14yaiF0y0fn1I-KiWhXHDKtQol5zauKsryZONk78XykXv2GK7i5Mnt1DlXkIqb3rowjLTdQzAUbzz_8mGMGOup3C8JsMv7T0qcJnCbKWieBY9h-scQ79dBjOe6uKpqR7J8D1G7qw8DHjiu5mHaUbxrA");
+                    console.log(JSON.stringify(ingest.data.properties[item.property]));
+                    const ingestRefs: Array<any> = extractIngestReferences(ingest, item.property);
+                    const itemsToSet: any[] = ingestRefs.filter((candidate: any) => {
+                        console.log("the candidate" + JSON.stringify(candidate) + " and " + JSON.stringify(contentToRemove));
+                        for (let i = 0; i <= contentToRemove.length; i++) {
+                            if (candidate.id.indexOf(contentToRemove[i]) > 0) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    });
+
+                    ingest.data.properties[item.property].references=itemsToSet;
+
+                    const patchObj:PatchRequest = new PatchRequest();
+                    patchObj.setType(ingest.data.type);
+                    patchObj.setUuid(ingest.data.uuid);
+                    patchObj.addLinkProperty(item.property,itemsToSet)
+
+                    console.log(JSON.stringify(patchObj));
+                    const writeResult = await httpFetcher.setContent("https://ingest.uat.dior.coremedia.cloud",
+                        id,
+                        "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL3d3dy5jb3JlbWVkaWEuY29tIiwic3ViIjoiamhsaW5rZUBjb2duaXRvIiwiaWF0IjoxNzAwMDQzMDY3LCJwZXJtaXNzaW9ucyI6WyJzZWNvbmQ6Y29udGVudF9yZWFkIiwidGhpcmQ6Y29udGVudF93cml0ZSIsInVhdDpjb250ZW50X3dyaXRlIiwidWF0Mjpjb250ZW50X3dyaXRlIiwidWF0Mjpjb250ZW50X3JlYWQiLCJ1YXQ6Y29udGVudF9yZWFkIiwidGhpcmQ6Y29udGVudF9yZWFkIiwic2Vjb25kOmNvbnRlbnRfd3JpdGUiLCJwcm9kdWN0aW9uOmNvbnRlbnRfd3JpdGUiLCJkZXZlbG9wbWVudDpjb250ZW50X3dyaXRlIiwiZGV2ZWxvcG1lbnQ6Y29udGVudF9yZWFkIiwicHJvZHVjdGlvbjpjb250ZW50X3JlYWQiXSwianRpIjoiODJlMzM2NjQtMzY4Ni00ODE4LWI3ZjYtNmJlMTQxNTA2YzllIn0.VORVOeiazSi8h-4ws-I9WZgbeKf5NYgxPInggH9tVy090xZgXynCNr-2CvWnBkWhilhT1G_2nbljDkhd_8fsxL5nZ6P4LuFRdJPtA2HrkWslZNu1gsU45ClRlOBIcF9hjeSHKMgR8sKzwhrBxEGvbmiUkm858fnq0dMpS6Z6_06Yb2NEHI88xQpEYy7QrxU14yaiF0y0fn1I-KiWhXHDKtQol5zauKsryZONk78XykXv2GK7i5Mnt1DlXkIqb3rowjLTdQzAUbzz_8mGMGOup3C8JsMv7T0qcJnCbKWieBY9h-scQ79dBjOe6uKpqR7J8D1G7qw8DHjiu5mHaUbxrA",
+                        patchObj
+                    );
+                    console.log(writeResult);
+                    //parse the arguments.
+                } catch (e) {
+                    console.log(e);
+                }
+                //ingest.data.properties[item.property].references;
             }
-            event.sender.send("issueFixed","fixed");
+            event.sender.send("issueFixed", "fixed");
         });
 
         ipcMain.on('resolveIssues', (event) => {
-            httpFetcher.getIssues("https://studio.production.dior.coremedia.cloud", win.webContents.session)
+            httpFetcher.getIssues("https://studio.uat.dior.coremedia.cloud", win.webContents.session)
                 .then(async json => {
                     let contentIds: Array<string> = json.hits.$Refs;
                     const issueTypes: any = {};
                     if (contentIds.length > 10) {
-                        contentIds = contentIds.slice(0, 10);
+                        contentIds = contentIds.slice(0, 1);
                     }
                     for (const id of contentIds) {
-                        const result = await httpFetcher.getIssueType("https://studio.production.dior.coremedia.cloud", contentIds[0], win.webContents.session);
+                        const result = await httpFetcher.getIssueType("https://studio.uat.dior.coremedia.cloud", contentIds[0], win.webContents.session);
                         const propertyObject = result.value.byProperty;
                         Object.keys(propertyObject).forEach((name) => {
                             //console.log("propertyName "+name + " "+Array.isArray(propertyObject[name]));
@@ -125,7 +159,6 @@ async function handleCookieChange(event, cookie) {
 
     }
 }
-
 
 // Quit when all windows are closed.
 app.on('window-all-closed', () => {
